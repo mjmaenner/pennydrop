@@ -44,13 +44,17 @@ pennydrop <- function(nplayers=length(strategies), npennies=10, strategies=c(3,3
   turns <- 1
   playermove <- 1
 
-  # Loop while more than one player has pennies.
+  # Loop while all players have pennies.
+  # The game ends as soon as any player reaches 0 pennies.
   player_pennies_indices <- 2:(1 + nplayers)
-  while(sum(gamestatus[player_pennies_indices] > 0) > 1){
+  while(all(gamestatus[player_pennies_indices] > 0)){
   
     pturn <- gamestatus[1]
-    # If the current player is already out (has 0 pennies), skip to the next player.
-    # This is necessary if the game continues until only one player has pennies.
+    # Note: The player skipping logic below (if a player is already at 0)
+    # will not be reached if the game ends when the *first* player hits 0,
+    # as the main loop condition `all(gamestatus[player_pennies_indices] > 0)`
+    # would terminate the loop immediately.
+    # It's kept here for now as the change was only to the loop condition.
     if (gamestatus[1 + pturn] == 0) {
       # Cycle through players: 1 -> 2 -> ... -> nplayers -> 1
       gamestatus[1] <- (pturn %% nplayers) + 1 
