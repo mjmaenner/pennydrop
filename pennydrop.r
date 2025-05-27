@@ -6,134 +6,111 @@ roll <- function(){
 }
 
 strategy <- function(gamestatus){
-  # nplayers can be inferred from the length of gamestatus
-  # length = 1 (pturn) + nplayers (pennies) + 5 (holes) + 1 (bank) + nplayers (strategies)
-  # length = 2 * nplayers + 7
-  # So, nplayers = (length(gamestatus) - 7) / 2
-  nplayers <- (length(gamestatus) - 7) / 2
+  # Get pturn (current player index)
+  pturn <- gamestatus$game_info$current_player_idx
 
-  # Accessing Hole Statuses (h1 to h5)
-  # Holes are from index (nplayers + 2) to (nplayers + 6)
-  hole_start_idx <- nplayers + 2
-  hole_end_idx <- nplayers + 6
-  up.pennies <- sum(gamestatus[hole_start_idx:hole_end_idx])
+  # Calculate up.pennies (sum of pennies in slots 1-5)
+  # The board_slots are: slot1, slot2, slot3, slot4, slot5, bank
+  up.pennies <- sum(gamestatus$board_slots[1:5])
 
-  # Accessing Current Player's Strategy
-  pturn <- gamestatus[1] # Current player number (1-indexed)
-  # Strategies start after pturn, nplayer pennies, 5 holes, 1 bank
-  # Strategy block starts at index: 1 (pturn) + nplayers (pennies) + 5 (holes) + 1 (bank) + 1 = nplayers + 8
-  # Player pturn's strategy is at index: (nplayers + 8) + pturn - 1
-  player_strategy_idx <- nplayers + 7 + pturn
-  strat <- gamestatus[player_strategy_idx]
+  # Get current player's strategy
+  strat <- gamestatus$players[[pturn]]$strategy
   
   decision <- ifelse(up.pennies < strat, 1, 0)  
   return(decision)
 }
 
 pennydrop <- function(nplayers=length(strategies), npennies=10, strategies=c(3,3), printgame=FALSE){
-  # gamestatus is a vector describing the status of the game
-  # New structure: c(pturn, p1_penny, ..., pn_penny, h1, ..., h5, bank, s1_strat, ..., sn_strat)
-  # Length: 1 (pturn) + nplayers (pennies) + 5 (holes) + 1 (bank) + nplayers (strategies) = 2 * nplayers + 7
-  gamestatus <- c(
-    1, # pturn
-    rep(npennies, nplayers), # pennies for each player
-    rep(0, 5), # h1-h5
-    0, # bank
-    strategies # strategies for each player
+  # gamestatus is now a list with board_slots, players, and game_info
+
+  gamestatus <- list(
+    board_slots = c(slot1=0, slot2=0, slot3=0, slot4=0, slot5=0, bank=0),
+    players = lapply(1:nplayers, function(i) { # nplayers is directly from function arguments
+      list(pennies = npennies, strategy = strategies[i])
+    }),
+    game_info = list(current_player_idx = 1, turns_taken = 1)
   )
-  turns <- 1
-  playermove <- 1
+  
+  # The rest of the game logic will need to be updated to use this new gamestatus structure.
+  # For now, the subtask is only to change the initialization.
+  # The existing logic below will likely break.
+
+  
+  playermove <- 1 # Retained: 1 for roll, 0 for pass
+  nplayers_val <- length(gamestatus$players) # nplayers for convenience
 
   # Loop while all players have pennies.
-  # The game ends as soon as any player reaches 0 pennies.
-  player_pennies_indices <- 2:(1 + nplayers)
-  while(all(gamestatus[player_pennies_indices] > 0)){
+  while(all(sapply(gamestatus$players, function(p) p$pennies > 0))){
   
-    pturn <- gamestatus[1]
-    # Note: The player skipping logic below (if a player is already at 0)
-    # will not be reached if the game ends when the *first* player hits 0,
-    # as the main loop condition `all(gamestatus[player_pennies_indices] > 0)`
-    # would terminate the loop immediately.
-    # It's kept here for now as the change was only to the loop condition.
-    if (gamestatus[1 + pturn] == 0) {
-      # Cycle through players: 1 -> 2 -> ... -> nplayers -> 1
-      gamestatus[1] <- (pturn %% nplayers) + 1 
-      turns <- turns +1 # A turn is consumed by skipping
+    pturn <- gamestatus$game_info$current_player_idx
+    
+    # Skip player if they are already out of pennies (should not happen with the while condition, but good for robustness)
+    if (gamestatus$players[[pturn]]$pennies == 0) {
+      gamestatus$game_info$current_player_idx <- (pturn %% nplayers_val) + 1 
+      gamestatus$game_info$turns_taken <- gamestatus$game_info$turns_taken + 1
       playermove <- 1 # Ensure the next player starts their move
-      next # Skip the rest of the loop for this player
+      next 
     }
-    player_penny_idx <- 1 + pturn
     
-    hole_start_idx <- 1 + nplayers + 1
-    hole_end_idx <- 1 + nplayers + 5
-    bank_idx <- 1 + nplayers + 5 + 1 # This is nplayers + 7
+    if(playermove == 1){ # Player chose to roll (or it's the start of their turn)
+      rollresult <- roll()
     
-  #if(playermove ==1){
-    rollresult <- roll()
-    
-    # Hole indices are 1-based for rollresult 1-5
-    current_hole_idx <- 1 + nplayers + rollresult 
-
-    if(rollresult < 6 && gamestatus[current_hole_idx] == 0 ){
-      gamestatus[current_hole_idx] <- 1
-    
-      #deduct a penny from active player
-      gamestatus[player_penny_idx] <- gamestatus[player_penny_idx] - 1
-      playermove <- strategy(gamestatus)  # strategy function will need update too
-      
-      
-    }else if(rollresult==6){
-      gamestatus[bank_idx] <- gamestatus[bank_idx] + 1
-      
-      #deduct a penny from active player
-      gamestatus[player_penny_idx] <- gamestatus[player_penny_idx] - 1
-      playermove <- strategy(gamestatus)  # strategy function will need update too
-      
-        
-    }else{ # Bad roll (rolled occupied slot or rolled > 5 and it wasn't 6 - though roll() only gives 1-6)
-           # Assuming a roll that hits an occupied slot (1-5) is a "bad roll"
-      num_pennies_in_holes <- sum(gamestatus[hole_start_idx:hole_end_idx])
-      gamestatus[hole_start_idx:hole_end_idx] <- 0 # Clear all holes
-      
-      #add pennies to active player
-      gamestatus[player_penny_idx] <- gamestatus[player_penny_idx] + num_pennies_in_holes
-      playermove = 0 
-      
+      if(rollresult < 6){ # Rolled a slot 1-5
+        if(gamestatus$board_slots[[rollresult]] == 0 ){ # Slot is empty
+          gamestatus$board_slots[[rollresult]] <- 1
+          gamestatus$players[[pturn]]$pennies <- gamestatus$players[[pturn]]$pennies - 1
+          # Player decides to roll again or pass
+          playermove <- strategy(gamestatus) 
+        } else { # Slot is occupied - bad roll
+          num_pennies_in_holes <- sum(gamestatus$board_slots[1:5])
+          gamestatus$board_slots[1:5] <- 0 # Clear all slots 1-5
+          gamestatus$players[[pturn]]$pennies <- gamestatus$players[[pturn]]$pennies + num_pennies_in_holes
+          playermove <- 0 # Player loses turn
+        }
+      } else if(rollresult == 6){ # Rolled a 6 - penny to the bank
+        gamestatus$board_slots[["bank"]] <- gamestatus$board_slots[["bank"]] + 1
+        gamestatus$players[[pturn]]$pennies <- gamestatus$players[[pturn]]$pennies - 1
+        # Player decides to roll again or pass
+        playermove <- strategy(gamestatus)
+      }
+      # No 'else' needed here as roll() only returns 1-6
     }
-  #}
-    #if they don't choose to roll, it defaults to pass, and they switch turns
     
-  if(printgame==TRUE){
-    print(gamestatus)
-  }
+    if(printgame==TRUE){
+      print(gamestatus)
+    }
     
-    #switch turns
-    if(playermove==0){
-      # Cycle through players: 1 -> 2 -> ... -> nplayers -> 1
-      gamestatus[1] <- (pturn %% nplayers) + 1 
-      turns <- turns +1
-      playermove <-1
+    # Switch turns if player chose to pass (playermove == 0) or after a bad roll
+    if(playermove == 0){
+      gamestatus$game_info$current_player_idx <- (pturn %% nplayers_val) + 1 
+      gamestatus$game_info$turns_taken <- gamestatus$game_info$turns_taken + 1
+      playermove <- 1 # Reset for next player's turn
     }
      
-      }
+  } # End of while loop
 
-  # Determine winner: the player who has 0 pennies.
-  # This assumes the game stops as soon as one player reaches 0.
-  # If multiple players could reach 0 simultaneously, this returns all of them.
-  player_pennies <- gamestatus[player_pennies_indices]
-  winner <- which(player_pennies == 0)
+  # Determine winner: (This section will be updated in the next subtask)
+  # The game ends as soon as any player reaches 0 pennies.
+  # The loop condition `all(sapply(gamestatus$players, function(p) p$pennies > 0))` ensures this.
+  # The player who caused the condition to be false is the one whose pennies just became <= 0.
+  # However, the subtask asks to leave winner determination for later.
+  # The old logic below will likely not work correctly without updates.
   
-  # If, due to rules, only one player should be declared winner (e.g., the first to reach 0),
-  # and 'winner' could contain multiple, one might take winner[1].
-  # For Penny Drop, the first player to 0 causes the game to end.
+  player_pennies <- sapply(gamestatus$players, function(p) p$pennies) # Renamed for clarity from problem desc.
+  winner <- which(player_pennies == 0) 
+  
+  # If multiple players reach 0 pennies simultaneously (rare), take the first one listed.
   if (length(winner) > 1) {
-    # This case should ideally not happen if game stops after first player is out.
-    # If it can, specific tie-breaking rules would be needed.
-    # For now, take the first one listed.
     winner <- winner[1]
   }
+  # Note: If length(winner) == 0, it means no player has 0 pennies.
+  # This should ideally not be reached if the main game loop `while(all(sapply(gamestatus$players, function(p) p$pennies > 0)))`
+  # correctly terminates only when at least one player has 0 pennies.
+  # If it's possible for the loop to terminate under other conditions in the future,
+  # this section might need to handle `length(winner) == 0` (e.g., by returning NA or error).
+  # For now, assuming the loop condition implies a winner will be found.
 
-  return(c(winner,turns))
+  return(c(winner, gamestatus$game_info$turns_taken)) # Use updated turns_taken
 }  
 
 # --- Old Examples (Commented Out due to changed function signature) ---
